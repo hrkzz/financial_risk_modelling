@@ -1,0 +1,157 @@
+---
+title: "Memo on Financial risk modelling and portfolio optimization with R"
+output:
+  html_document:
+    toc: yes
+    toc_float: true
+    fig_width: 10 
+    fig_height: 5 
+---
+
+```{r setup, include=FALSE}
+setwd("C:/Users/s7794/Desktop/Programming/R/Finance/FMPO/8")
+```
+
+#Chapter 8: Modelling volatility
+## The class of ARCH models
+```{r message=F, warning=F, fig.height=8}
+library(rugarch)
+
+#arch(1) simulation
+arch1.spec = ugarchspec(variance.model = list(garchOrder=c(1,0)), 
+                        mean.model = list(armaOrder=c(0,0)),
+                        fixed.pars=list(mu = 0, omega=0.1, alpha1=0.8))
+set.seed(100)
+arch1.sim = ugarchpath(arch1.spec, n.sim=5000)
+
+#arch(4) simulation
+arch4.spec = ugarchspec(variance.model = list(garchOrder=c(4,0)), 
+                        mean.model = list(armaOrder=c(0,0)),
+                        fixed.pars=list(mu = 0, omega=0.1, 
+                                        alpha1=0.4, alpha2=0.3, alpha3=0.2, alpha4=0.09))
+set.seed(100)
+arch4.sim = ugarchpath(arch4.spec, n.sim=5000)
+
+set.seed(100)
+wn.sim <- rnorm(5000, 0, 1)
+
+par(mfrow=c(3,1))
+plot(wn.sim, type="l", ylab="white noise", ylim=c(-7,7))
+plot(arch1.sim@path$seriesSim, type="l", ylab="series of ARCH(1)", ylim=c(-7,7))
+plot(arch4.sim@path$seriesSim, type="l", ylab="series of ARCH(4)", ylim=c(-7,7))
+
+par(mfrow=c(3,1))
+plot(wn.sim^2, type="l", ylab="white noise", ylim=c(0,20))
+plot(arch1.sim@path$sigmaSim, type="l", ylab="sigma of ARCH(1)", ylim=c(0,20))
+plot(arch4.sim@path$sigmaSim, type="l", ylab="sigma of ARCH(4)", ylim=c(0,20))
+
+```
+
+## Empirical application of volatility models
+```{r message=F, warning=F}
+library(AER)
+library(fGarch)
+library(timeSeries)
+```
+
+A daily time series from 2 January 1990 to 11 November 2005 of the New York Stock Exchange composite index. The sample contains 4003 observations.
+```{r }
+data(NYSESW)
+head(NYSESW)
+```
+
+### Index
+```{r }
+NYSEIndex <- timeSeries(NYSESW, char.vec = time(NYSESW))
+plot(NYSEIndex, main="Daily price of NYSE")
+```
+
+### Log-return
+```{r }
+NYSERet <- diff(log(NYSEIndex))*100
+plot(NYSERet, main="Daily return of NYSE")
+```
+
+### Omega
+```{r }
+plot(NYSERet^2, main="Daily omega of NYSE")
+```
+
+### Loss
+```{r }
+NYSELOSS <- timeSeries(-1.0 * NYSERet, char.vec = time(NYSESW))[-1,]
+plot(NYSELOSS, main="Daily losses of NYSE")
+```
+
+### Back test 
+In order to conduct the back-test, the function ESgarch() is defined in lines 6-14. 
+```{r }
+## Function for ES of t-GARCH
+ESgarch <- function(y, p = 0.99){
+  gfit <- garchFit(formula = ~ garch(1, 1), data = y, cond.dist = "std", trace = FALSE)
+  sigma <-  predict(gfit, n.ahead = 1)[3]
+  df <- coef(gfit)["shape"]
+  ES <- sigma * (dt(qt(p, df), df)/(1 - p)) * ((df + (qt(p, df))^2)/(df - 1))
+  return(ES)
+}
+```
+
+Within this function a GARCH(1, 1) model with a Student's t-distributed innovation process is estimated first. 
+```{r }
+gfit <- garchFit(formula = ~ garch(1, 1), data = NYSELOSS, cond.dist = "std", trace = FALSE)
+gfit
+```
+
+The one-step-ahead forecast of the conditional standard deviation is computed next.
+```{r }
+predict(gfit, n.ahead = 1)
+sigma <- predict(gfit, n.ahead = 1)[3]; sigma
+```
+
+The fitted value of the degrees-of-freedom parameter is assigned to the object df. 
+```{r }
+coef(gfit)
+df <- coef(gfit)["shape"] ##shape = degree of freedom
+```
+
+The expected shortfall is then computed for the default confidence level of p = 0.99. Incidentally, the mean equation of this GARCH model consists of a constant only and is omitted in the calculation of the ES.
+```{r }
+ES <- sigma * (dt(qt(0.99, df), df)/(1 - 0.99)) * ((df + (qt(0.99, df))^2)/(df - 1))
+ES
+```
+
+Given that its estimate represents the mean of the series which is empirically close to zero, it can safely be discarded from the computation of the ES. The back-test itself is then conducted by utilizing a sliding window with 1000 observations. 
+```{r }
+## Date vectors for backtest
+from <- time(NYSELOSS)[-c((nrow(NYSELOSS) - 999) : nrow(NYSELOSS))]
+to <- time(NYSELOSS)[-c(1:1000)]
+```
+
+The function fapply() comes in handy for conducting back-tests of this kind. Two date vectors
+are created in which the start and end dates of this moving window through time are stored. In the next line the function fapply() will call ESgarch() with the subsamples of the losses according to the date values contained in the objects from and to. It should be noted that the ES numbers are now associated with the date values of from. But these conditional risk measures pertain to the next trading day and hence the series must be lagged by one period (object NYSEESL1) for comparison with the actual losses. The size of the back-test therefore consists of 3001 risk measure-loss pairs. A graphical comparison of the actual losses and the conditional ES for a 99% confidence level is produced in the final lines.
+
+```{r }
+## Date vectors for backtest
+NYSEES <- fapply(NYSELOSS, from = from, to = to, FUN = ESgarch)
+NYSEESL1 <- lag(NYSEES, k = 1)
+```
+
+```{r }
+res <- na.omit(cbind(NYSELOSS, NYSEESL1))
+colnames(res) <- c("NYSELOSS", "ES99")
+plot(res[, 2], col = "red", ylim = range(res),
+     main = "NYSE: t-GARCH(1,1) ES 99%", ylab = "percentages", xlab = "")
+points(res[, 1], type = "p", cex = 0.2, pch = 19, col = "blue")
+legend("topleft", legend = c("Loss", "ES"),
+       col = c("blue", "red"), lty = c(NA, 1), pch = c(19, NA))
+```
+
+
+
+
+
+
+
+
+
+
