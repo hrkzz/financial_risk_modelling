@@ -1,0 +1,113 @@
+---
+title: "Memo on Financial risk modelling and portfolio optimization with R"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=10, fig.height=5)
+setwd("C:/Users/s7794/Desktop/Programming/R/Finance/FMPO/3")
+```
+
+# Chapter 3: Financial Market Data
+## Stylized facts on the returns for Siemens
+```{r }
+library(fBasics)
+library(evir)
+```
+
+```{r }
+data(siemens)
+head(siemens)
+SieDates <- as.character(format(as.POSIXct(attr(siemens, "times")), "%Y-%m-%d"))
+SieRet <- timeSeries(siemens * 100, charvec = SieDates)
+colnames(SieRet) <- "SieRet"
+head(SieRet)
+```
+
+```{r }
+## Stylised Facts I
+par(mfrow = c(2, 2), mar=c(3,4,4,4))
+seriesPlot(SieRet, title = FALSE, main = "Daily Returns of Siemens", col = "blue")
+boxPlot(SieRet, title = FALSE, main = "Box plot of Returns", col = "blue", cex = 0.5, pch = 19)
+acf(SieRet, main = "ACF of Returns", lag.max = 20, ylab = "",
+    xlab = "", col = "blue", ci.col = "red")
+pacf(SieRet, main = "PACF of Returns", lag.max = 20, ylab = "",
+     xlab = "", col = "blue", ci.col = "red")
+```
+
+```{r }
+## Stylised Facts II
+SieRetAbs <- abs(SieRet)
+head(SieRetAbs)
+SieRet100 <- tail(sort(abs(series(SieRet))), 100)[1]
+idx <- which(series(SieRetAbs) > SieRet100, arr.ind = TRUE)
+SieRetAbs100 <- timeSeries(rep(0, length(SieRet)), charvec = time(SieRet))
+SieRetAbs100[idx, 1] <- SieRetAbs[idx]
+
+par(mfrow = c(2, 2), mar=c(3,4,4,4))
+acf(SieRetAbs, main = "ACF of Absolute Returns", lag.max = 20,
+    ylab = "", xlab = "", col = "blue", ci.col = "red")
+pacf(SieRetAbs, main = "PACF of Absolute Returns", lag.max = 20,
+     ylab = "", xlab = "", col = "blue", ci.col = "red")
+qqnormPlot(SieRet, main = "QQ-Plot of Returns", title = FALSE,
+           col = "blue", cex = 0.5, pch = 19)
+plot(SieRetAbs100, type = "h", main = "Volatility Clustering",
+     ylab = "", xlab = "", col = "blue")
+```
+
+Figure 3.2 further investigates whether the stylized facts about financial market returns hold in the case of Siemens. In the upper panels of this figure, the autocorrelations and partial autocorrelations of the absolute returns are plotted. Clearly, these are significantly different from zero and taper off only slowly. In the lower left panel a quantile-quantile (QQ) plot compared to the normal distribution is produced. The negative skewand heavy tails aremirrored from their quantitative values in this graph.  
+Finally, in Listing 3.1 the 100 largest absolute returns have been retrieved from the object SieRet. These values are shown in the lower right-hand panel. This time series plot vindicates more clearly what could already be deduced from the upper left-hand panel in Figure 3.1: first, the existence of volatility clustering; and second, that the returns become more volatile in the second half of the sample period.
+
+## Stylised Facts of European Equity Market	
+```{r }
+library(zoo)
+data(EuStockMarkets)
+head(EuStockMarkets)
+```
+
+```{r }
+## Time Series plot of Levels
+EuStockLevel <- as.zoo(EuStockMarkets)[, c("DAX", "CAC", "FTSE")]
+plot(EuStockLevel, xlab = "", main = "")
+```
+
+```{r }
+## Perecntage returns
+EuStockRet <- diff(log(EuStockLevel)) * 100
+plot(EuStockRet, xlab = "", main = "")
+```
+
+```{r }
+## Cross correlations
+par(mar=c(3,4,3,3))
+layout(matrix(1:6, nrow = 3, ncol = 2, byrow = TRUE))
+ccf(EuStockRet[, 1], EuStockRet[, 2], ylab = "", xlab = "",
+    lag.max = 20, main = "Returns DAX vs CAC")
+ccf(abs(EuStockRet)[, 1], abs(EuStockRet)[, 2], ylab = "",
+    xlab = "", lag.max = 20, main = "Absolute returns DAX vs CAC")
+ccf(EuStockRet[, 1], EuStockRet[, 3], ylab = "", xlab = "",
+    lag.max = 20, main = "Returns DAX vs FTSE")
+ccf(abs(EuStockRet)[, 1], abs(EuStockRet)[, 3], ylab = "",
+    xlab = "", lag.max = 20, main = "Absolute returns DAX vs FTSE")
+ccf(EuStockRet[, 2], EuStockRet[, 3], ylab = "", xlab = "",
+    lag.max = 20, main = "Returns CAC vs FTSE")
+ccf(abs(EuStockRet)[, 2], abs(EuStockRet)[, 3], ylab = "",
+    xlab = "", lag.max = 20, main = "Absolute returns CAC vs FTSE")
+```
+
+```{r }
+## Rolling correlations
+rollc <- function(x){
+  dim <- ncol(x)
+  rcor <- cor(x)[lower.tri(diag(dim), diag = FALSE)]
+  return(rcor)
+}
+rcor <- rollapply(EuStockRet, width = 250, rollc, align = "right", by.column = FALSE)
+colnames(rcor) <- c("DAX & CAC", "DAX & FTSE", "CAC & FTSE")
+plot(rcor, main = "", xlab = "")
+```
+
+
