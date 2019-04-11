@@ -1,0 +1,295 @@
+---
+title: "Memo on Financial risk modelling and portfolio optimization with R"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    fig_width: 10 
+    fig_height: 5 
+---
+
+```{r setup, include=FALSE}
+setwd("C:/Users/s7794/Desktop/Programming/R/Finance/FMPO/7")
+```
+
+#Chapter 7: Extreme value theory
+
+##Block maxima model for Siemens
+`siemens` is Daily Log Returns on Siemens Share Price. These data are the daily log returns on Siemens share price from Tuesday 2nd January 1973 until Tuesday 23rd July 1996. The data are contained in a numeric vector. The dates of each observation are contained in a times attribute, which is an object of class "POSIXct" (see DateTimeClasses). Note that these data form an irregular time series because no trading takes place at the weekend.
+###Data 
+```{r }
+library(evir)
+data(siemens)
+head(siemens)
+```
+
+```{r fig.width=10, fig.height=4}
+library(timeSeries)
+SieDates <- as.character(format(as.POSIXct(attr(siemens, "times")), "%Y-%m-%d"))
+SieRet <- timeSeries(siemens * 100, charvec = SieDates)
+plot(SieRet, ylab="Log-return of Siemens")
+
+png(filename="7_1_SiemensLogRet.png", width = 800, height = 400)
+plot(SieRet, ylab="Log-return of Siemens")
+dev.off()
+```
+
+### Losses
+First, the daily returns are converted to positive loss figures expressed as percentages.
+```{r }
+SieLoss <- -100.0 * siemens
+head(SieLoss)
+```
+
+### Fitting GEV to block maxima of Siemens
+The generalized extreme value (GEV) distribution is a family of continuous probability distributions developed within extreme value theory to combine the Gumbel, Fréchet and Weibull families. 
+```{r }
+## package evir:
+library(evir)
+SieGEV <- gev(SieLoss, block = "semester")
+```
+
+```{r }
+plot(SieGEV$data, type = "h", xlab = "", pch = 19,
+     ylab = "Block Maxima", main = "Maximum Biannual Losses of Siemens")
+
+png(filename="7_2_BlockMaxima.png", width = 800, height = 400)
+plot(SieGEV$data, type = "h", xlab = "", pch = 19,
+     ylab = "Block Maxima", main = "Maximum Biannual Losses of Siemens")
+dev.off()
+```
+
+
+```{r}
+options(digits = 4)
+## Estimates
+SieGEV$par.ests
+
+## Standard error
+SieGEV$par.ses
+```
+
+```{r }
+## package ismev:
+library(ismev)
+SieGEV2 <- gev.fit(SieGEV$data)
+```
+
+```{r }
+gev.diag(SieGEV2)
+
+png(filename="7_3_diagSimens.png", width = 800, height = 600)
+gev.diag(SieGEV2)
+dev.off()
+```
+
+`gev.prof()`  produces a return level plot for m years per block. `gevprofxi()` returns the profile with respect to the shape parameter only. Confidence bands can be superimposed on both kinds of graph.
+
+```{r }
+par(mfrow = c(1, 2))
+gev.prof(SieGEV2, m = 20, xlow = 5, xup = 16, conf = 0.95)
+gev.profxi(SieGEV2, xlow = 0.0, xup = 0.7, conf = 0.95)
+
+png(filename="7_4_likeli.png", width = 800, height = 400)
+gev.prof(SieGEV2, m = 20, xlow = 5, xup = 16, conf = 0.95)
+dev.off()
+```
+
+```{r }
+retrun.level.data <- function (z, m, xlow, xup, conf = 0.95, nint = 100) 
+{
+    if (m <= 1) 
+        stop("`m' must be greater than one")
+    cat("If routine fails, try changing plotting interval", fill = TRUE)
+    p <- 1/m
+    v <- numeric(nint)
+    x <- seq(xlow, xup, length = nint)
+    sol <- c(z$mle[2], z$mle[3])
+    gev.plik <- function(a) {
+        if (abs(a[2]) < 10^(-6)) {
+            mu <- xp + a[1] * log(-log(1 - p))
+            y <- (z$data - mu)/a[1]
+            if (is.infinite(mu) || a[1] <= 0) 
+                l <- 10^6
+            else l <- length(y) * log(a[1]) + sum(exp(-y)) + 
+                sum(y)
+        }
+        else {
+            mu <- xp - a[1]/a[2] * ((-log(1 - p))^(-a[2]) - 1)
+            y <- (z$data - mu)/a[1]
+            y <- 1 + a[2] * y
+            if (is.infinite(mu) || a[1] <= 0 || any(y <= 0)) 
+                l <- 10^6
+            else l <- length(y) * log(a[1]) + sum(y^(-1/a[2])) + 
+                sum(log(y)) * (1/a[2] + 1)
+        }
+        l
+    }
+    for (i in 1:nint) {
+        xp <- x[i]
+        opt <- optim(sol, gev.plik)
+        sol <- opt$par
+        v[i] <- opt$value
+    }
+    v <- data.frame(percentage=x, LogLik=v)
+    return(v)
+}
+
+retrun.level.20 <- retrun.level.data(SieGEV2, m = 20, xlow = 5, xup = 16, conf = 0.95)
+retrun.level.20$percentage[retrun.level.20$LogLik == min(retrun.level.20$LogLik)]
+```
+
+```{r }
+mLoss <- max(SieGEV$data)
+mLoss
+
+mYears <- 1 / (1 - pgev(mLoss, mu=SieGEV2$mle[1], sigma=SieGEV2$mle[2], xi=SieGEV2$mle[3])) / 2
+mYears
+```
+
+Further inference from the model can be made using the profile log-likelihoods. Figure 7.4 shows these for a 10-year return level (left panel) and for the shape parameter (right panel). A daily loss as high as 7.6% would be observed once every 10 years. This point estimate falls within a 95% confidence level ranging from 6% to 11.75%. Hence, the maximum observed loss of 12.01% would not have been covered as a "once in every 10 years" event, but rather this loss would occur only once every 42 years or so. 
+In the right panel of Figure 7.4, the profile log-likelihood for the shape parameter is shown with a 95% confidence band (the horizontal light gray lines) superimposed. As can clearly be seen, the confidence band is asymmetric and to the right for the point estimate of $\xi$???? = 0.287. A value of almost 0.6 would be covered by this confidence band.
+
+```{r }
+## package fExtremes:
+library(fExtremes)
+SieGEV3 <-  gevFit(SieGEV$data, type = "pwm")
+SieGEV3
+```
+
+##r-block maxima for BMW
+```{r }
+library(evir)
+library(ismev)
+## Order statistics
+data(bmw)
+plot(bmw, type="l")
+
+png(filename="7_5_bmwRet.png", width = 800, height = 400)
+plot(bmw, type="l")
+dev.off()
+```
+
+```{r}
+BmwLoss <- -1.0 * bmw * 100 
+Years <- format(attr(BmwLoss, "time"), "%Y")
+attr(BmwLoss, "years") <- Years
+Yearu <- unique(Years)
+idx <- 1:length(Yearu)
+r <- 2
+BmwOrder <- t(sapply(idx, function(x)
+              head(sort(BmwLoss[attr(BmwLoss, "years") == Yearu[x]], decreasing = TRUE), r)))
+rownames(BmwOrder) <- Yearu
+colnames(BmwOrder) <- paste("r", 1:r, sep = "")
+```
+
+```{r }
+## Plot of order data
+plot(Yearu, BmwOrder[, 1], col = "black", ylim = range(BmwOrder),
+     ylab = "Losses BMW (percentages)", xlab = "",
+     pch = 21, bg = "black")
+points(Yearu, BmwOrder[, 2], col = "blue", pch = 23, bg = "blue")
+
+png(filename="7_6_rPlot.png", width = 800, height = 400)
+plot(Yearu, BmwOrder[, 1], col = "black", ylim = range(BmwOrder),
+     ylab = "Losses BMW (percentages)", xlab = "",
+     pch = 21, bg = "black")
+points(Yearu, BmwOrder[, 2], col = "blue", pch = 23, bg = "blue")
+dev.off()
+```
+
+```{r }
+## Fit and diagnostics
+BmwOrderFit <- rlarg.fit(BmwOrder)
+rlarg.diag(BmwOrderFit)
+
+png(filename="7_7_diagbmw.png", width = 800, height = 400)
+par(mfrow=c(2,4))
+rlarg.diag(BmwOrderFit)
+dev.off()
+```
+
+##POT method for Boeing
+```{r }
+library(fBasics)
+library(fExtremes)
+## Data handling
+data(DowJones30)
+DJ <- timeSeries(DowJones30[, -1], charvec = as.character(DowJones30[, 1]))
+BALoss <- -1.0 * returns(DJ[, "BA"], percentage = TRUE, trim = TRUE)
+plot(BALoss)
+
+png(filename="7_8_BARet.png", width = 800, height = 400)
+plot(BALoss)
+dev.off()
+```
+
+### MRL-plot
+```{r }
+mrlPlot(BALoss, umin = -10, umax = 10, labels = T)
+
+png(filename="7_9_mrlPlot.png", width = 800, height = 400)
+mrlPlot(BALoss, umin = -10, umax = 10, labels = T)
+dev.off()
+```
+
+```{r }
+findThreshold(BALoss, n = floor(0.041*length(as.vector(BALoss))), doplot = F)
+```
+
+```{r }
+### GPD
+BAFit <- gpdFit(BALoss, u = 3)
+summary(BAFit)
+## Diagnostic plots
+# plot(BAFit)
+png(filename="7_10_diagBA.png", width = 800, height = 400)
+par(mfrow=c(2,2))
+summary(BAFit)
+dev.off()
+```
+
+### Risk measures
+```{r }
+gpdRiskMeasures(BAFit, prob = c(0.95, 0.99, 0.995))
+```
+
+```{r }
+library(fExtremes)
+library(fBasics)
+data(nyse)
+NYSELevel <- timeSeries(nyse[, 2], charvec = as.character(nyse[, 1]))
+NYSELoss <- na.omit(-1.0 * diff(log(NYSELevel)) * 100)
+colnames(NYSELoss) <- "NYSELoss"
+```
+
+```{r }
+## Point process data
+NYSEPP <- pointProcess(x = NYSELoss, u = quantile(NYSELoss, 0.95))
+plot(NYSEPP)
+par(mfrow=c(1,2), mar=c(5,5,5,5)); acf(NYSEPP); pacf(NYSEPP)
+```
+
+```{r }
+## Declustering
+DC05 <- deCluster(x = NYSEPP, run = 5, doplot = FALSE)
+DC10 <- deCluster(x = NYSEPP, run = 10, doplot = FALSE)
+DC20 <- deCluster(x = NYSEPP, run = 20, doplot = FALSE)
+DC40 <- deCluster(x = NYSEPP, run = 40, doplot = FALSE)
+DC60 <- deCluster(x = NYSEPP, run = 60, doplot = FALSE)
+DC120 <- deCluster(x = NYSEPP, run = 120, doplot = FALSE)
+```
+
+```{r }
+## Fit of declustered data
+DC05Fit <- gpdFit(DC05, u = min(DC05))
+DC10Fit <- gpdFit(DC10, u = min(DC10))
+DC20Fit <- gpdFit(DC20, u = min(DC20))
+DC40Fit <- gpdFit(DC40, u = min(DC40))
+DC60Fit <- gpdFit(DC60, u = min(DC60))
+DC120Fit <- gpdFit(DC120, u = min(DC40))
+```
+
+```{r }
+summary(DC05Fit)
+```
