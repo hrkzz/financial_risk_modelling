@@ -1,1 +1,5 @@
 # financial_risk_modelling
+
+こちらの文献のサンプルコードを紹介。
+
+<div  class="amazon Default"><div  align="left" class="pictBox"><a  target="_blank" href="https://www.amazon.co.jp/Financial-Risk-Modelling-Portfolio-Optimization/dp/1119119669?SubscriptionId=AKIAIM37F4M6SCT5W23Q&amp;tag=lvdrfree-22&amp;linkCode=xm2&amp;camp=2025&amp;creative=165953&amp;creativeASIN=1119119669"><img  class="pict" style="margin-right:10px" align="left" hspace="5" border="0" alt="Financial Risk Modelling and Portfolio Optimization with R" src="https://images-fe.ssl-images-amazon.com/images/I/518E1j--3fL._SL160_.jpg"></a></div><div  class="itemTitle"><a  target="_blank" href="https://www.amazon.co.jp/Financial-Risk-Modelling-Portfolio-Optimization/dp/1119119669?SubscriptionId=AKIAIM37F4M6SCT5W23Q&amp;amp;tag=lvdrfree-22&amp;amp;linkCode=xm2&amp;amp;camp=2025&amp;amp;creative=165953&amp;amp;creativeASIN=1119119669">Financial Risk Modelling and Portfolio Optimization with R</a></div><div  class="itemSubTxt">Bernhard Pfaff</div><div  class="itemSubTxt">Wiley</div><div  class="itemSubTxt">2016-10-03</div></div><br  style="clear:left" clear="left"><br />
